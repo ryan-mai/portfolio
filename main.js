@@ -13,6 +13,8 @@ import { TTFLoader } from 'three/addons/loaders/TTFLoader.js';
 import { Font } from 'three/addons/loaders/FontLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 
+const degToRad = THREE.MathUtils.degToRad;
+
 let container, stats;
 let camera, controls, scene, renderer;
 let width, height;
@@ -39,6 +41,10 @@ const depth = 0.1,
     bevelThickness = 2,
     bevelSize = 1.5;
 
+let raycaster = new THREE.Raycaster();
+let pointer = new THREE.Vector2();
+let hoverTip = null;
+
 init();
 
 async function init() {
@@ -48,8 +54,11 @@ async function init() {
     height = window.innerHeight;
 
     camera = new THREE.PerspectiveCamera( 60, width / height, 1, 20000);
-    camera.position.y = getY( worldHalfWidth, worldHalfDepth ) * 100 + 100;
-
+    camera.position.y = getY( worldHalfWidth, worldHalfDepth ) * 100 + 500;
+    camera.position.set( 0, worldDepth + 200, -25 );
+    camera.rotation.z = Math.PI
+    // camera.rotation.set( degToRad( 150 ), degToRad( -2.0 ), degToRad( -100 ) );
+    
     scene = new THREE.Scene();
     scene.background = new THREE.Color( 0xbfd1e5 );
 
@@ -146,6 +155,23 @@ async function init() {
     renderer.setAnimationLoop( animate );
     container.append( renderer.domElement );
 
+    renderer.domElement.addEventListener( 'pointermove', onPointerMove );
+    renderer.domElement.addEventListener( 'pointerdown', onPointerDown );
+
+    hoverTip = document.createElement( 'div' );
+    hoverTip.style.cssText = [
+        'position: fixed',
+        'pointer-events: none',
+        'background: rgba(0, 0, 0, 0.75)',
+        'color: #fff',
+        'padding: 6px 8px',
+        'font-size: 13px',
+        'z-index: 21474836478',
+        'white-space: nowrap',
+        'display: none',
+    ].join(';');
+    document.body.appendChild( hoverTip );
+
     controls = new OrbitControls( camera, renderer.domElement );
     controls.target = new THREE.Vector3( 0, 2, 0);
     controls.update();
@@ -167,6 +193,102 @@ async function initPhysics() {
     addCharacterController();
 }
 
+function placeModel( model, { worldX = 0, worldZ = 0, rotY = 0, offsetAboveGround = 0 } = {} ) {
+    model.updateMatrixWorld(true);
+    scene.add( model );
+
+    const bbox = new THREE.Box3().setFromObject( model );
+    const minY = bbox.min.y;
+
+    const ix = Math.floor( ( worldX + worldHalfWidth * 100 ) / 100 );
+    const iz = Math.floor( ( worldZ + worldHalfDepth * 100 ) / 100 );
+    const cx = Math.max( 0, Math.min( worldWidth - 1, ix ) );
+    const cz = Math.max( 0, Math.min( worldDepth - 1, iz ) );
+    const groundY = getY( cx, cz ) * 100;
+
+    model.position.x = worldX;
+    model.position.z = worldZ;
+    model.rotation.y = rotY;
+    model.position.y = groundY + offsetAboveGround - minY;
+
+    model.traverse( o => { if ( o.isMesh ) o.castShadow = true; } );
+}
+
+function addImage( url, worldX = 0, worldY = null, worldZ = 0, width = 200, height = 200, rotY= 0, linkUrl = null ) {
+    if ( worldY === null ) {
+        const ix = Math.floor( ( worldX + worldHalfWidth * 100 ) / 100 );
+        const iz = Math.floor( ( worldX + worldHalfDepth * 100 ) / 100 );
+        const cx = Math.max( 0, Math.min( worldX + worldWidth * ix ) / 100 );
+        const cz = Math.max( 0, Math.min( worldX + worldDepth * iz ) / 100 );
+        worldY = getY( cx, cz ) * 100;
+    }
+
+    const texture = new THREE.TextureLoader().load( url );
+    if ( texture && texture.colorSpace !== undefined ) texture.colorSpace = THREE.SRGBColorSpace;
+
+    const material = new THREE.MeshBasicMaterial( { map: texture, transparent: true, side: THREE.DoubleSide } );
+    const geometry = new THREE.PlaneGeometry( width, height );
+    const mesh = new THREE.Mesh( geometry, material );
+    mesh.position.set( worldX, worldY, worldZ );
+    mesh.rotation.y = rotY;
+
+    if ( typeof linkUrl == 'string' && linkUrl.length > 0 ) {
+        mesh.userData.link = linkUrl;
+        mesh.userData.isClickable = true;
+    }
+
+    scene.add(mesh);
+
+    return mesh;
+}
+
+function onPointerMove( event ) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.x = ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1;
+    pointer.y = - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1;
+
+    raycaster.setFromCamera( pointer, camera);
+    const intersects = raycaster.intersectObjects( scene.children, true );
+
+    let overLink = false;
+    let hoveredLink = null;
+    for ( let i = 0; i < intersects.length; i++ ) {
+        const obj = intersects[i].object;
+        if ( obj.userData && obj.userData.isClickable ) {
+            overLink = true;
+            hoveredLink = obj.userData.link;
+            break;
+        }
+    }
+    renderer.domElement.style.cursor = overLink ? 'pointer' : 'default';
+    if ( hoverTip ) {
+        if ( overLink ) {
+            hoverTip.style.display = 'block';
+            hoverTip.textContent = hoveredLink || '';
+            hoverTip.style.left = ( event.clientX + 12 ) + 'px';
+            hoverTip.style.top = ( event.clientY + 12 ) + 'px';
+        } else {
+        hoverTip.style.display = 'none';
+        }
+    }
+}
+
+function onPointerDown( event ) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.x = ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1;
+    pointer.y = - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1;
+
+    raycaster.setFromCamera( pointer, camera);
+    const intersects = raycaster.intersectObjects( scene.children, true );
+
+    for ( let i = 0; i < intersects.length; i++ ) {
+        const obj = intersects[i].object;
+        if ( obj.userData &&  obj.userData.link ) {
+            window.open( obj.userData.link, '_blank' );
+            return;
+        }
+    }
+}
 
 function addCharacterController() {
     const playerHeight = 0.8
@@ -180,9 +302,26 @@ function addCharacterController() {
 
     loader = new GLTFLoader();
     loader.setDRACOLoader( dracoLoader );
+    loader.load('models/frame.glb', function( gltf ) {
+        const frameModel = gltf.scene;
+        frameModel.scale.set( 250, 250, 250 );
+
+        placeModel( frameModel, { worldX: 135, worldZ: -500, rotY: degToRad(180), offsetAboveGround: 100 } );  
+    } )
     loader.load('models/sign.glb', function( gltf ) {
         model = gltf.scene;
         model.position.set( 0, worldDepth - 75, worldWidth + 50 );
+        model.scale.set( 250, 250, 250 );
+        scene.add( model );
+
+        model.traverse( function ( object ) {
+            if ( object.isMesh ) object.castShadow = true;
+        } );        
+    })
+    loader.load('models/sign.glb', function( gltf ) {
+        model = gltf.scene;
+        model.position.set( worldWidth * 10, worldDepth - 75, worldWidth + 50 );
+        model.rotation.y = Math.PI / 4
         model.scale.set( 250, 250, 250 );
         scene.add( model );
 
@@ -213,13 +352,16 @@ function addCharacterController() {
         const textLoader = new TTFLoader();
 
         textLoader.load( './fonts/Minecraftia-Regular.ttf', function ( json ) {
+            font = new Font( json );
+            text = 'Hey, my name\nis Ryan!'
+            createText(text, 10, 0, worldDepth + 30, worldDepth + 44, degToRad(180));
+            text = '67 Racing\n(Godot)'
+            createText(text, 10,  worldWidth * 9.5, worldDepth + 30, worldWidth, Math.PI / 4);
+        } );
 
-        font = new Font( json );
-        text = 'Hey, my name\nis Ryan!'
-        createText(text, 10);
+        addImage( 'images/me.jpeg', 10, 297, 234, 150, 150, degToRad(180), 'https://github.com/ryan-mai' );
 
-} );
-
+        addImage( 'images/flying_balls.png', 1000, 297, 234, 150, 150, degToRad(180), 'https://flying-balls-ten.vercel.app/' );
     },
     undefined,
     function ( error ) {
@@ -237,32 +379,39 @@ function addCharacterController() {
         player.userData.collider = physics.world.createCollider( colliderDesc );
     } );
 };
-function createText(text, size,) {
+function createText(text, size, posX, posY, posZ, rotY = 0) {
 
-    textGeo = new TextGeometry( text, {
+    const textMat = new THREE.MeshStandardMaterial( { color: 0x000000 } );
 
-        font: font,
+    const textGroup = new THREE.Group();
 
-        size: size,
-        depth: depth,
+    const lines = String(text).split('\n');
+    const lineHeight = size * 2.0;
 
-    } );
+    for ( let i = 0; i < lines.length; i++ ) {
+        const line = lines[i] || ' ';
+        const geo = new TextGeometry( line, {
+            font: font,
+            size: size,
+            depth: 0.1,
+        } );
 
-    textGeo.computeBoundingBox();
-    textGeo.computeVertexNormals();
-    textGeo.translate(-textGeo.boundingBox.max.x / 2, 0, 0);
-    textMesh1 = new THREE.Mesh( textGeo, textMat );
+        geo.computeBoundingBox();
+        geo.computeVertexNormals();
+        geo.center();
 
-    textMesh1.position.x = 0;
-    textMesh1.position.y = worldDepth + 30;
-    textMesh1.position.z = worldDepth + 44;
+        const mesh = new THREE.Mesh( geo, textMat );
+        const totalHeight = ( lines.length - 1 ) * lineHeight;
+        mesh.position.y = ( totalHeight / 2 ) - ( i * lineHeight );
+        textGroup.add( mesh );
+    }
 
-    textMesh1.rotation.y = Math.PI;
-    // textMesh1.rotation.y = Math.PI * 2;
+    textGroup.position.set( posX, posY, posZ );
+    textGroup.rotation.y = rotY;
 
-    scene.add( textMesh1 );
+    scene.add( textGroup );
 
-}
+ }
 // Helper Functions
 function onKeyDown( event ) {
     if ( event.key == 'w' || event.key == 'ArrowUp' ) movement.forward = 1;
@@ -305,7 +454,30 @@ function generateHeight( width, height ) {
     return data;
 }
 
+function logCamera() {
+    const pos = new THREE.Vector3();
+    camera.getWorldPosition( pos );
 
+    const quat = new THREE.Quaternion();
+    camera.getWorldQuaternion( quat );
+    const euler = new THREE.Euler().setFromQuaternion( quat, camera.rotation.order || 'YXZ' );
+
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection( dir );
+
+    console.log( 'Camera position (x,y,z):', pos.toArray().map( v => v.toFixed(2 ) ) );
+    console.log( 'Camera rotation (deg) (x,pitch, y,yaw, z,roll):', 
+        { x: THREE.MathUtils.radToDeg( euler.x ).toFixed(2), 
+          y: THREE.MathUtils.radToDeg( euler.y ).toFixed(2), 
+          z: THREE.MathUtils.radToDeg( euler.z ).toFixed(2) } );
+    console.log( 'Camera quaternion (x,y,z,w):', quat.toArray().map( v => v.toFixed(4) ) );
+    console.log( 'Camera forward direction:', dir.toArray().map( v => v.toFixed(3) ) );
+}
+
+// quick key to print camera state
+window.addEventListener( 'keydown', function ( e ) {
+    if ( e.key === 'p' || e.key === 'P' ) logCamera();
+} );
 function getY( x, z ) {
     return ( data[ x + z * worldWidth ] * 0.15 ) | 0;
 }
