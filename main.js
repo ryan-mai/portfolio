@@ -186,7 +186,7 @@ async function init() {
 
     const helpDiv = document.createElement('div');
     helpDiv.style.cssText = 'background: rgba(0,0,0,0.85); color: #fff; padding: 8px 10px; border-radius: 6px; font-size: 12px; max-width: 420px; line-height:1.4; display:none; text-align:right;';
-    helpDiv.innerHTML = '<strong>Controls</strong><br/>WASD / Arrow keys: Move<br/>Mouse: Orbit & Zoom<br/>E / Q: Move up / down<br/>Click images to open links!<br/>Press <strong>H</strong> to toggle this help';
+    helpDiv.innerHTML = '<strong>Controls</strong><br/>WASD/Arrow Keys: Move<br/>Mouse: Orbit & Zoom<br/>E / Q: Move up / down<br/>Click images to open links!<br/>Press <strong>H</strong> to toggle this help';
 
     helpPanelContainer.appendChild(helpDiv);
     document.body.appendChild(helpPanelContainer);
