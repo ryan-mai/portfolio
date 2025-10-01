@@ -4,8 +4,7 @@ import Stats from 'three/addons/libs/stats.module.js';
 
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
-import { RapierPhysics } from 'three/addons/physics/RapierPhysics.js';
-import { RapierHelper } from 'three/addons/helpers/RapierHelper.js';
+// ...removed Rapier imports...
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
@@ -25,8 +24,9 @@ const data = generateHeight( worldWidth, worldDepth );
 
 let skeleton, model, loader, dracoLoader;
 
-let physics, characterController, physicsHelper;
-let player, movement;
+// ...removed Rapier-related variables...
+let movement;
+let cameraSpeed = 800;
 
 const clock = new THREE.Clock();
 const fps = 60;
@@ -45,6 +45,8 @@ let raycaster = new THREE.Raycaster();
 let pointer = new THREE.Vector2();
 let hoverTip = null;
 
+const colorList = ['#000000', '#0000AA', '#00AA00', '#00AAAA', '#AA0000', '#AA00AA', '#FFAA00', '#AAAAAA', '#555555', '#5555FF', '#55FF55', '#55FFFF', '#FF5555', '#FF55FF', '#FFFF55', '#DDD605', '#E3D4D1', '#CECACA', '#443A3B', '#971607', '#B4684D', '#DEB12D', '#47A036', '#2CBAA8', '#21497B', '#9A5CC6']
+
 init();
 
 async function init() {
@@ -56,7 +58,6 @@ async function init() {
     camera = new THREE.PerspectiveCamera( 60, width / height, 1, 20000);
     camera.position.y = getY( worldHalfWidth, worldHalfDepth ) * 100 + 500;
     camera.position.set( 0, worldDepth + 200, -25 );
-    camera.rotation.z = Math.PI
     // camera.rotation.set( degToRad( 150 ), degToRad( -2.0 ), degToRad( -100 ) );
     
     scene = new THREE.Scene();
@@ -155,6 +156,68 @@ async function init() {
     renderer.setAnimationLoop( animate );
     container.append( renderer.domElement );
 
+    const hudContainer = document.createElement('div');
+    hudContainer.style.cssText = 'position:fixed; right:12px; top:12px; z-index:9999; display:flex; flex-direction:column; gap:8px; align-items:flex-end; font-family: Arial, Helvetica, sans-serif;';
+    const helpContainer = document.createElement('div');
+    helpContainer.style.cssText = 'position:fixed; right:12px; top:12px; z-index:9999; display:flex; flex-direction:column; gap:8px; align-items:flex-end; font-family: Arial, Helvetica, sans-serif;';
+    const helpIconContainer = document.createElement('div');
+    helpIconContainer.style.cssText = 'position:fixed; right:12px; bottom:12px; z-index:9999; display:flex; flex-direction:column; gap:8px; align-items:flex-end; font-family: Arial, Helvetica, sans-serif;';
+
+    const helpIcon = document.createElement('div');
+    helpIcon.style.cssText = 'width:36px; height:36px; background:rgba(255, 255, 255, 1); border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;';
+    helpIcon.title = 'Controls (hover)';
+
+    // add Material Symbols stylesheet (only once) and use the "info" symbol as the icon
+    if (!document.querySelector('link[href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=info"]')) {
+        const msLink = document.createElement('link');
+        msLink.rel = 'stylesheet';
+        msLink.href = "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=info";
+        document.head.appendChild(msLink);
+    }
+
+    helpIcon.innerHTML = '<span class="material-symbols-outlined" style="font-variation-settings:\'FILL\' 0, \'wght\' 800; font-size:18px; color:#2854C5;">info</span>';
+
+    helpIconContainer.appendChild(helpIcon);
+    document.body.appendChild(helpIconContainer);
+
+    // bottom-right: help panel (moved here)
+    const helpPanelContainer = document.createElement('div');
+    helpPanelContainer.style.cssText = 'position:fixed; right:12px; bottom:12px; z-index:9999; display:flex; flex-direction:column; gap:8px; align-items:flex-end; font-family: Arial, Helvetica, sans-serif;';
+
+    const helpDiv = document.createElement('div');
+    helpDiv.style.cssText = 'background: rgba(0,0,0,0.85); color: #fff; padding: 8px 10px; border-radius: 6px; font-size: 12px; max-width: 420px; line-height:1.4; display:none; text-align:right;';
+    helpDiv.innerHTML = '<strong>Controls</strong><br/>WASD / Arrow keys: Move<br/>Mouse: Orbit & Zoom<br/>E / Q: Move up / down<br/>Click images to open links!<br/>Press <strong>H</strong> to toggle this help';
+
+    helpPanelContainer.appendChild(helpDiv);
+    document.body.appendChild(helpPanelContainer);
+
+    // Hover behavior: hovering the icon shows the bottom-right panel; hovering the panel keeps it visible
+    helpIcon.addEventListener('mouseenter', () => helpDiv.style.display = 'block');
+    helpIcon.addEventListener('mouseleave', () => {
+        setTimeout(() => { if (!helpDiv.matches(':hover') && !helpIcon.matches(':hover')) helpDiv.style.display = 'none'; }, 50);
+    });
+    helpDiv.addEventListener('mouseenter', () => helpDiv.style.display = 'block');
+    helpDiv.addEventListener('mouseleave', () => {
+        setTimeout(() => { if (!helpDiv.matches(':hover')) helpDiv.style.display = 'none'; }, 50);
+    });
+
+    // Bottom-left: persistent contact panel
+    const contactContainer = document.createElement('div');
+    contactContainer.style.cssText = 'position:fixed; left:12px; bottom:12px; z-index:9999; display:flex; flex-direction:column; gap:8px; align-items:flex-start; font-family: Arial, Helvetica, sans-serif;';
+
+    const contactDiv = document.createElement('div');
+    contactDiv.style.cssText = 'background: rgba(0,0,0,0.75); color: #fff; padding: 10px 12px; border-radius: 6px; font-size: 13px; max-width: 320px; line-height:1.4; text-align:left;';
+    contactDiv.innerHTML = '<strong>Contact</strong><br/>Ryan Mai<br/><a href="mailto:ryanmai757@gmail.com" style="color:#9cf;" target="_blank" rel="noopener">Email</a> | <a href="https://github.com/ryan-mai" target="_blank" rel="noopener" style="color:#9cf;">Github</a>';
+    contactContainer.appendChild(contactDiv);
+    document.body.appendChild(contactContainer);
+
+    // toggle help with "H"
+    window.addEventListener('keydown', (ev) => {
+        if ( ev.key && ev.key.toLowerCase() === 'h' ) {
+            helpDiv.style.display = helpDiv.style.display === 'none' ? 'block' : 'none';
+        }
+    });
+
     renderer.domElement.addEventListener( 'pointermove', onPointerMove );
     renderer.domElement.addEventListener( 'pointerdown', onPointerDown );
 
@@ -174,23 +237,18 @@ async function init() {
 
     controls = new OrbitControls( camera, renderer.domElement );
     controls.target = new THREE.Vector3( 0, 2, 0);
+    controls.target.set(controls.target.x, camera.position.y, controls.target.z)
     controls.update();
 
-    initPhysics();
+    // ...removed initPhysics()...
 
-    movement = { forward: 0, right: 0 };
+    movement = { forward: 0, right: 0, up: 0 }; // added vertical axis
     window.addEventListener( 'keydown', onKeyDown );
     window.addEventListener( 'keyup', onKeyUp );
     window.addEventListener( 'resize', onWindowResize );
 
-}
-
-async function initPhysics() {
-    physics = await RapierPhysics();
-    physicsHelper = new RapierHelper( physics.world );
-    scene.add ( physicsHelper );
-    physics.addScene( scene );
-    addCharacterController();
+    // Scene content setup (models, images, text)
+    setupScene();
 }
 
 function placeModel( model, { worldX = 0, worldZ = 0, rotY = 0, offsetAboveGround = 0 } = {} ) {
@@ -242,6 +300,57 @@ function addImage( url, worldX = 0, worldY = null, worldZ = 0, width = 200, heig
     return mesh;
 }
 
+function addModel( url, { worldX = 0, worldY = null, worldZ = 0, rotY = 0, scale = 1, offsetAboveGround = 0, castShadow = true } = {}, linkUrl = null ) {
+    return new Promise( ( resolve, reject ) => {
+        const loader = new GLTFLoader();
+
+        if ( typeof dracoLoader !== 'undefined' && dracoLoader ) {
+            loader.setDRACOLoader( dracoLoader );
+        } else {
+            const temp = new DRACOLoader();
+            temp.setDecoderPath( 'gltf/' );
+            loader.setDRACOLoader( temp );
+        }
+
+        loader.load( url, function ( gltf ) {
+            const model = gltf.scene;
+            model.scale.set( scale, scale, scale );
+
+            if ( typeof worldY === 'number' ) {
+                model.updateMatrixWorld(true);
+                scene.add( model );
+                const bbox = new THREE.Box3().setFromObject( model );
+                const minY = bbox.min.y;
+                model.position.set( worldX, worldY, worldZ );
+                model.rotation.y = rotY;
+                model.position.y = worldY + offsetAboveGround - minY;
+            } else {
+                placeModel( model, { worldX, worldZ , rotY, offsetAboveGround } );
+            }
+
+            if ( typeof linkUrl === 'string' && linkUrl.length > 0 ) {
+                model.userData = model.userData || {};
+                model.userData.link = linkUrl;
+                model.userData.isClickable = true
+
+                model.traverse  ( obj => {
+                    if ( obj.isMesh ) {
+                        obj.userData = obj.userData || {};
+                        obj.userData.link = linkUrl;
+                        obj.userData.isClickable = true;
+                    }
+                })
+            }
+
+            if ( castShadow ) model.traverse( obj => { if ( obj.isMesh ) obj.castShadow = true; } );
+            resolve ( model );
+        }, undefined, function ( err) { 
+            console.log( err );
+            reject( err );
+        } );
+    });
+}
+
 function onPointerMove( event ) {
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.x = ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1;
@@ -290,98 +399,96 @@ function onPointerDown( event ) {
     }
 }
 
-function addCharacterController() {
+function setupScene() {
     const playerHeight = 0.8
     const groundCenterY = getY ( worldHalfWidth, worldHalfDepth ) * 100;
     const topOffset = 200;
     const halfPlayerHeight = playerHeight / 2;
     const playerWorldY = groundCenterY + topOffset + halfPlayerHeight;
 
-    dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath( 'gltf/' );
+    addModel( 'models/frame.glb', { worldX: 135, worldZ: -500, rotY: degToRad(180), scale: 250, offsetAboveGround: 100 } )
+        .catch( e => console.warn( 'frame load failed', e ) );
 
-    loader = new GLTFLoader();
-    loader.setDRACOLoader( dracoLoader );
-    loader.load('models/frame.glb', function( gltf ) {
-        const frameModel = gltf.scene;
-        frameModel.scale.set( 250, 250, 250 );
+    addModel( 'models/sign.glb', { worldX: 0, worldY: -10, worldZ: 178, offsetAboveGround: 60, scale: 250 }, 'https://github.com/ryan-mai' )
+        .catch( e => console.warn( 'sign1 load failed', e ) );
+    addImage( 'images/me.jpeg', 10, 297, 234, 150, 150, degToRad(180) );
 
-        placeModel( frameModel, { worldX: 135, worldZ: -500, rotY: degToRad(180), offsetAboveGround: 100 } );  
-    } )
-    loader.load('models/sign.glb', function( gltf ) {
-        model = gltf.scene;
-        model.position.set( 0, worldDepth - 75, worldWidth + 50 );
-        model.scale.set( 250, 250, 250 );
-        scene.add( model );
+    addModel( 'models/frame.glb', { worldX: -115, worldZ: -570, rotY: degToRad(0), scale: 250, offsetAboveGround: 395 } )
+        .catch( e => console.warn( 'frame load failed', e ) );
 
-        model.traverse( function ( object ) {
-            if ( object.isMesh ) object.castShadow = true;
-        } );        
-    })
-    loader.load('models/sign.glb', function( gltf ) {
-        model = gltf.scene;
-        model.position.set( worldWidth * 10, worldDepth - 75, worldWidth + 50 );
-        model.rotation.y = Math.PI / 4
-        model.scale.set( 250, 250, 250 );
-        scene.add( model );
+    addModel( 'models/sign.glb', { worldX: 0, worldY: 280, worldZ: -1300, offsetAboveGround: 60, scale: 250 }, 'https://github.com/ryan-mai/corporate-translator' )
+        .catch( e => console.warn( 'sign1 load failed', e ) );
+    addImage( 'images/corporatetranslator.png', 10, 590, -1300, 150, 150, degToRad(0), 'https://join.slack.com/t/seriousbusinessstuff/shared_invite/zt-39n69tneo-AEt7r4xs_g6i56BaLwXXYg' );
 
-        model.traverse( function ( object ) {
-            if ( object.isMesh ) object.castShadow = true;
-        } );        
-    })
-    loader.load( 'models/steve.glb', function ( gltf ) {
-        model = gltf.scene;
-        model.position.set( 0, worldDepth + 100, 0 );
-        model.scale.set( 1, 1, 1 );
-        model.rotateX( Math.PI / 2 )
-        scene.add( model );
+    addImage( 'images/esolang.png', 1000, 490, -1300, 250, 250, degToRad(-45), 'https://github.com/ryan-mai/6ix-esolang-fix' );
 
-        model.traverse( function ( object ) {
-            if ( object.isMesh ) object.castShadow = true;
-        } );
+    addImage( 'images/hogrider.png', -1000, 490, -1300, 350, 350, degToRad(45), 'https://ryantheguy.itch.io/ian-the-type-of-guy' );
 
-        
-        player = model;
+    addImage( 'images/thebiggestmenace.png', -1000, 490, 2300, 350, 350, degToRad(-225), 'https://github.com/ryan-mai/Big-Circles' );
 
-        characterController = physics.world.createCharacterController( 0.01 );
-        characterController.setApplyImpulsesToDynamicBodies( true );
-        characterController.setCharacterMass( 30 );
-        const colliderDesc = physics.RAPIER.ColliderDesc.capsule( 0.5, 0.3 ).setTranslation( 0, playerWorldY, 0 );
-        player.userData.collider = physics.world.createCollider( colliderDesc );
+    addImage( 'images/playerstat.png', 1000, 100, 2300, 500, 500, degToRad(200), );
+
+
+    addModel( 'models/frame.glb', { worldX: 625, worldZ: -600, scale: 250, rotY: Math.PI, offsetAboveGround: 100 } )
+        .catch( e => console.warn( 'frame load failed', e ) );      
+    addModel( 'models/sign.glb', { worldX: 500, worldZ: 100, offsetAboveGround: 50, scale: 250 }, 'https://github.com/ryan-mai/flying-balls' )
+        .catch( e => console.warn( 'sign2 load failed', e ) );
+    addImage( 'images/flying_balls.png', 500, 297, 134, 150, 150, degToRad(180), 'https://flying-balls-ten.vercel.app' );
+
+    addModel( 'models/frame.glb', { worldX: 350, worldZ: 750, scale: 250, rotY: Math.PI, offsetAboveGround: 20 } )
+        .catch( e => console.warn( 'frame load failed', e ) );      
+    addModel( 'models/sign.glb', { worldX: 225, worldZ: 1500, offsetAboveGround: 50, scale: 250 }, 'https://github.com/Hung-Chi970104/time-less' )
+        .catch( e => console.warn( 'sign2 load failed', e ) );
+    addImage( 'images/timeless.png', 225, -85, 1488, 150, 150, degToRad(180), 'https://hungchi970104.itch.io/timeless' );
+
+
+    addModel( 'models/frame.glb', { worldX: 2145, worldY: -145, worldZ: 765, scale: 250, rotY: Math.PI, offsetAboveGround: 50 } )
+        .catch( e => console.warn( 'frame load failed', e ) );      
+    addModel( 'models/sign.glb', { worldX: 2025, worldZ: 1500, offsetAboveGround: 50, scale: 250 }, 'https://github.com/ryan-mai/railgun' )
+        .catch( e => console.warn( 'sign2 load failed', e ) );
+    addImage( 'images/railgun.png', 2020, 0, 1500, 150, 150, degToRad(180), 'https://railgun-ashy.vercel.app/' );
+
+
+    addModel( 'models/frame.glb', { worldX: 2610, worldY: -245, worldZ: -10, scale: 550, rotY: Math.PI, offsetAboveGround: 50 } )
+        .catch( e => console.warn( 'frame load failed', e ) );      
+    addModel( 'models/sign.glb', { worldX: 2325, worldZ: 1600, offsetAboveGround: 50, scale: 250 }, 'https://github.com/ryan-mai/koko' )
+        .catch( e => console.warn( 'sign2 load failed', e ) );
+    addImage( 'images/koko.png', 2320, 0, 1600, 400, 150, degToRad(180), 'https://koko-navy.vercel.app/' );
+
+
+   
+    addModel( 'models/steve.glb', { worldX: -150, worldY: 0, worldZ: 0, offsetAboveGround: 50, rotY: Math.PI/4, scale: 1 } )
+        .then( m => { 
+            model = m;
+            model.scale.set( 1, 1, 1 );
+            model.rotateX( Math.PI / 2 )
+
+            model.traverse( function ( object ) {
+                if ( object.isMesh ) object.castShadow = true;
+            } );
+        })
+        .catch( e => console.warn( 'failed to load steve', e) );
     
-        const textLoader = new TTFLoader();
+    const textLoader = new TTFLoader();
 
-        textLoader.load( './fonts/Minecraftia-Regular.ttf', function ( json ) {
-            font = new Font( json );
-            text = 'Hey, my name\nis Ryan!'
-            createText(text, 10, 0, worldDepth + 30, worldDepth + 44, degToRad(180));
-            text = '67 Racing\n(Godot)'
-            createText(text, 10,  worldWidth * 9.5, worldDepth + 30, worldWidth, Math.PI / 4);
-        } );
 
-        addImage( 'images/me.jpeg', 10, 297, 234, 150, 150, degToRad(180), 'https://github.com/ryan-mai' );
+    textLoader.load( './fonts/Minecraftia-Regular.ttf', function ( json ) {
+        font = new Font( json );
+        createText('I\'m from\n Toronto, Canada', 8, 0, worldDepth + 30, worldDepth + 44, degToRad(180), colorList[Math.floor(Math.random() * colorList.length)]);
+        createText('Corporate Translator\n(Slack Bot)', 6, 0, 445, -1294, degToRad(0), colorList[Math.floor(Math.random() * colorList.length)]);
+        createText('Hey, I\'m Ryan Mai!', 750,  500, 1000, 7000, Math.PI, colorList[Math.floor(Math.random() * colorList.length)]);
+        createText('WASD/Arrow/Mouse to Move & Zoom', 100,  50, 2500, 7000, Math.PI, colorList[Math.floor(Math.random() * colorList.length)]);
 
-        addImage( 'images/flying_balls.png', 1000, 297, 234, 150, 150, degToRad(180), 'https://flying-balls-ten.vercel.app/' );
-    },
-    undefined,
-    function ( error ) {
-        console.warn( error ); 
-        const geometry = new THREE.CapsuleGeometry( 10, 30, 16, 32 );
-        const material = new THREE.MeshStandardMaterial( { color: 0x0000ff } );
-        player = new THREE.Mesh( geometry, material );
-        player.castShadow = true;
-        player.position.set( 0, 0, 0 );
-        scene.add( player );
-        characterController = physics.world.createCharacterController( 0.01 );
-        characterController.setApplyImpulsesToDynamicBodies( true );
-        characterController.setCharacterMass( 30 );
-        const colliderDesc = physics.RAPIER.ColliderDesc.capsule( 0.5, 0.3 ).setTranslation( 0, playerWorldY, 0 );
-        player.userData.collider = physics.world.createCollider( colliderDesc );
+        createText('Flying Balls\n(Latest Project)', 7,  500, worldDepth + 30, 93, Math.PI, colorList[Math.floor(Math.random() * colorList.length)]);
+        createText('Timeless\n(DayDream Toronto!)', 6,  225, -245, 1493, Math.PI, colorList[Math.floor(Math.random() * colorList.length)]);
+        createText('Railgun\n(Aframe.js)', 10,  2025, -145, 1493, Math.PI, colorList[Math.floor(Math.random() * colorList.length)]);
+        createText('Koko Vr\n(Aframe.js)', 10,  2330, -145, 1592, Math.PI, colorList[Math.floor(Math.random() * colorList.length)]);
     } );
 };
-function createText(text, size, posX, posY, posZ, rotY = 0) {
 
-    const textMat = new THREE.MeshStandardMaterial( { color: 0x000000 } );
+function createText(text, size, posX, posY, posZ, rotY = 0, color = 0x000000) {
+
+    const textMat = new THREE.MeshStandardMaterial( { color: color } );
 
     const textGroup = new THREE.Group();
 
@@ -414,29 +521,35 @@ function createText(text, size, posX, posY, posZ, rotY = 0) {
  }
 // Helper Functions
 function onKeyDown( event ) {
-    if ( event.key == 'w' || event.key == 'ArrowUp' ) movement.forward = 1;
-    else if ( event.key == 's' || event.key == 'ArrowDown' ) movement.forward = -1;
-    else if ( event.key == 'd' || event.key == 'ArrowRight' ) movement.right = 1;
-    else if ( event.key == 'a' || event.key == 'ArrowLeft' ) movement.right = -1;
+    const key = String(event.key).toLowerCase();
+
+    if ( key === 'w' || key === 'arrowup' ) movement.forward = 1;
+    else if ( key === 's' || key === 'arrowdown' ) movement.forward = -1;
+
+    if ( key === 'd' || key === 'arrowright' ) movement.right = 1;
+    else if ( key === 'a' || key === 'arrowleft' ) movement.right = -1;
+
+    if ( key === 'e' || key === '.' ) movement.up = 1;
+    else if ( key === 'q' || key === ',' ) movement.up = -1;
 }
 
 function onKeyUp( event ) {
-    if ([ 'w', 'ArrowUp', 's', 'ArrowDown' ].includes( event.key ) ) movement.forward = 0;
-    else if ([ 'd', 'ArrowRight', 'a', 'ArrowLeft' ].includes( event.key ) ) movement.right = 0; 
-}
+    const key = String(event.key).toLowerCase();
 
-function random( min, max ) {
-    return Math.random() * ( max - min ) + min;
+    if ( [ 'w', 'arrowup', 's', 'arrowdown' ].includes( key ) ) movement.forward = 0;
+    if ( [ 'd', 'arrowright', 'a', 'arrowleft' ].includes( key ) ) movement.right = 0;
+
+    if ( [ 'e', '.' ].includes( key ) ) movement.up = 0;
+    if ( [ 'q', ',' ].includes( key ) ) movement.up = 0;
 }
 
 function onWindowResize() {
-        width = window.innerWidth;
-        height = window.innerHeight;
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
-        renderer.setSize( width, height );
-        renderer.setPixelRatio( Math.min( window.devicePixelRatio, 2) );
-        // controls.handleResize();
+    width = window.innerWidth;
+    height = window.innerHeight;
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    renderer.setSize( width, height );
+    renderer.setPixelRatio( Math.min( window.devicePixelRatio, 2) );
 }
 
 function generateHeight( width, height ) {
@@ -454,54 +567,29 @@ function generateHeight( width, height ) {
     return data;
 }
 
-function logCamera() {
-    const pos = new THREE.Vector3();
-    camera.getWorldPosition( pos );
-
-    const quat = new THREE.Quaternion();
-    camera.getWorldQuaternion( quat );
-    const euler = new THREE.Euler().setFromQuaternion( quat, camera.rotation.order || 'YXZ' );
-
-    const dir = new THREE.Vector3();
-    camera.getWorldDirection( dir );
-
-    console.log( 'Camera position (x,y,z):', pos.toArray().map( v => v.toFixed(2 ) ) );
-    console.log( 'Camera rotation (deg) (x,pitch, y,yaw, z,roll):', 
-        { x: THREE.MathUtils.radToDeg( euler.x ).toFixed(2), 
-          y: THREE.MathUtils.radToDeg( euler.y ).toFixed(2), 
-          z: THREE.MathUtils.radToDeg( euler.z ).toFixed(2) } );
-    console.log( 'Camera quaternion (x,y,z,w):', quat.toArray().map( v => v.toFixed(4) ) );
-    console.log( 'Camera forward direction:', dir.toArray().map( v => v.toFixed(3) ) );
-}
-
-// quick key to print camera state
-window.addEventListener( 'keydown', function ( e ) {
-    if ( e.key === 'p' || e.key === 'P' ) logCamera();
-} );
 function getY( x, z ) {
     return ( data[ x + z * worldWidth ] * 0.15 ) | 0;
 }
 
-
 function animate() {   
-    if ( physicsHelper ) physicsHelper.update();
-    if ( physics && characterController ) {
-        const deltaTime = 1 / 60;
-        const speed = 1000 * deltaTime;
-        const moveVector = new physics.RAPIER.Vector3( movement.right * speed, 0, -movement.forward * speed )
+    const delta = clock.getDelta();
+    const speed = cameraSpeed * delta;
 
-        characterController.computeColliderMovement( player.userData.collider, moveVector );
+    if ( movement.forward !== 0 || movement.right !== 0 || movement.up !== 0 ) {
+        const up = new THREE.Vector3(0, 1, 0);
+        const forward = new THREE.Vector3().subVectors(controls.target, camera.position).setY(0).normalize();
+        const right = new THREE.Vector3().crossVectors(forward, up).normalize();
 
-        const translation = characterController.computedMovement();
-        const position = player.userData.collider.translation();
+        const move = new THREE.Vector3();
+        if ( movement.forward !== 0 ) move.addScaledVector(forward, movement.forward * speed);
+        if ( movement.right !== 0 ) move.addScaledVector(right, movement.right * speed);
+        if ( movement.up !== 0 ) move.addScaledVector(up, movement.up * speed);
 
-        position.x += translation.x;
-        position.y += translation.y;
-        position.z += translation.z;
-
-        player.userData.collider.setTranslation( position );
-        player.position.set( position.x, position.y, position.z );
-
+        camera.position.add(move);
+        controls.target.add(move);
+        controls.update();
+    } else {
+        controls.update();
     }
 
     renderer.render(scene, camera);
